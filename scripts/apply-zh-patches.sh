@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-PATCH_DIR="${1:-$HOME/VoiceInk-patches}"
+PATCH_DIR="${1:-$REPO_DIR/patches}"
 
 echo "=== Applying Traditional Chinese patches ==="
 echo "Repository: $REPO_DIR"
