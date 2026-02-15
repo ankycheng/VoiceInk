@@ -8,7 +8,9 @@ struct MenuBarView: View {
     @EnvironmentObject var whisperModelManager: WhisperModelManager
     @EnvironmentObject var hotkeyManager: HotkeyManager
     @EnvironmentObject var menuBarManager: MenuBarManager
+    #if !LOCAL_BUILD
     @EnvironmentObject var updaterViewModel: UpdaterViewModel
+    #endif
     @EnvironmentObject var enhancementService: AIEnhancementService
     @EnvironmentObject var aiService: AIService
     @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
@@ -228,10 +230,21 @@ struct MenuBarView: View {
             
             Divider()
             
+            #if LOCAL_BUILD
+            Button("Check for Updates") {
+                Task { await LocalUpdateService.shared.checkForUpdates() }
+            }
+            if LocalUpdateService.shared.updateAvailable {
+                Button("Rebuild from Latest") {
+                    menuBarManager.openMainWindowAndNavigate(to: "Settings")
+                }
+            }
+            #else
             Button("Check for Updates") {
                 updaterViewModel.checkForUpdates()
             }
             .disabled(!updaterViewModel.canCheckForUpdates)
+            #endif
             
             Button("Help and Support") {
                 EmailSupport.openSupportEmail()

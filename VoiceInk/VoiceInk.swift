@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
+#if !LOCAL_BUILD
 import Sparkle
+#endif
 import AppKit
 import OSLog
 import AppIntents
@@ -18,7 +20,9 @@ struct VoiceInkApp: App {
     @StateObject private var transcriptionModelManager: TranscriptionModelManager
     @StateObject private var recorderUIManager: RecorderUIManager
     @StateObject private var hotkeyManager: HotkeyManager
+    #if !LOCAL_BUILD
     @StateObject private var updaterViewModel: UpdaterViewModel
+    #endif
     @StateObject private var menuBarManager: MenuBarManager
     @StateObject private var aiService = AIService()
     @StateObject private var enhancementService: AIEnhancementService
@@ -90,8 +94,10 @@ struct VoiceInkApp: App {
         let aiService = AIService()
         _aiService = StateObject(wrappedValue: aiService)
 
+        #if !LOCAL_BUILD
         let updaterViewModel = UpdaterViewModel()
         _updaterViewModel = StateObject(wrappedValue: updaterViewModel)
+        #endif
 
         let enhancementService = AIEnhancementService(aiService: aiService, modelContext: container.mainContext)
         _enhancementService = StateObject(wrappedValue: enhancementService)
@@ -253,7 +259,9 @@ struct VoiceInkApp: App {
                     .environmentObject(transcriptionModelManager)
                     .environmentObject(recorderUIManager)
                     .environmentObject(hotkeyManager)
+                    #if !LOCAL_BUILD
                     .environmentObject(updaterViewModel)
+                    #endif
                     .environmentObject(menuBarManager)
                     .environmentObject(aiService)
                     .environmentObject(enhancementService)
@@ -275,7 +283,11 @@ struct VoiceInkApp: App {
                         // Migrate dictionary data from UserDefaults to SwiftData (one-time operation)
                         DictionaryMigrationService.shared.migrateIfNeeded(context: container.mainContext)
 
+                        #if LOCAL_BUILD
+                        Task { await LocalUpdateService.shared.checkForUpdates() }
+                        #else
                         updaterViewModel.silentlyCheckForUpdates()
+                        #endif
                         if enableAnnouncements {
                             AnnouncementsService.shared.start()
                         }
@@ -328,9 +340,11 @@ struct VoiceInkApp: App {
         .commands {
             CommandGroup(replacing: .newItem) { }
 
+            #if !LOCAL_BUILD
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesView(updaterViewModel: updaterViewModel)
             }
+            #endif
         }
 
         MenuBarExtra(isInserted: $showMenuBarIcon) {
@@ -342,7 +356,9 @@ struct VoiceInkApp: App {
                 .environmentObject(recorderUIManager)
                 .environmentObject(hotkeyManager)
                 .environmentObject(menuBarManager)
+                #if !LOCAL_BUILD
                 .environmentObject(updaterViewModel)
+                #endif
                 .environmentObject(aiService)
                 .environmentObject(enhancementService)
         } label: {
@@ -367,6 +383,7 @@ struct VoiceInkApp: App {
     }
 }
 
+#if !LOCAL_BUILD
 class UpdaterViewModel: ObservableObject {
     @AppStorage("autoUpdateCheck") private var autoUpdateCheck = true
 
@@ -408,6 +425,7 @@ struct CheckForUpdatesView: View {
             .disabled(!updaterViewModel.canCheckForUpdates)
     }
 }
+#endif
 
 struct WindowAccessor: NSViewRepresentable {
     let callback: (NSWindow) -> Void

@@ -20,7 +20,7 @@ class WhisperPrompt: ObservableObject {
         "bn": "নমস্কার, কেমন আছেন? আপনার সাথে দেখা হয়ে ভালো লাগলো।",
         "ja": "こんにちは、お元気ですか？お会いできて嬉しいです。",
         "ko": "안녕하세요, 잘 지내시나요? 만나서 반갑습니다.",
-        "zh": "你好，最近好吗？见到你很高兴。",
+        "zh": "以下是普通話的句子。你好，最近好嗎？見到你很高興。",
         "th": "สวัสดีครับ/ค่ะ, สบายดีไหม? ยินดีที่ได้พบคุณ",
         "vi": "Xin chào, bạn khỏe không? Rất vui được gặp bạn.",
         "yue": "你好，最近點呀？見到你好開心。",
@@ -86,7 +86,7 @@ class WhisperPrompt: ObservableObject {
     
     func updateTranscriptionPrompt() {
         // Get the currently selected language from UserDefaults
-        let selectedLanguage = UserDefaults.standard.string(forKey: "SelectedLanguage") ?? "en"
+        let selectedLanguage = UserDefaults.standard.string(forKey: "SelectedLanguage") ?? "zh"
         
         // Get the prompt for the selected language (custom if available, otherwise default)
         let basePrompt = getLanguagePrompt(for: selectedLanguage)

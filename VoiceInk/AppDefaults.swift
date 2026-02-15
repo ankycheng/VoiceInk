@@ -23,7 +23,7 @@ enum AppDefaults {
             "IsTextFormattingEnabled": true,
             "IsVADEnabled": true,
             "RemoveFillerWords": true,
-            "SelectedLanguage": "en",
+            "SelectedLanguage": "zh",
             "AppendTrailingSpace": true,
             "RecorderType": "mini",
 
@@ -45,6 +45,9 @@ enum AppDefaults {
 
             // Model
             "PrewarmModelOnWake": true,
+
+            // Local Build
+            "LocalBuild_SourceDirectoryPath": "",
         ])
     }
 }

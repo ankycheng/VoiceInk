@@ -6,7 +6,9 @@ import AVFoundation
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    #if !LOCAL_BUILD
     @EnvironmentObject private var updaterViewModel: UpdaterViewModel
+    #endif
     @EnvironmentObject private var menuBarManager: MenuBarManager
     @EnvironmentObject private var hotkeyManager: HotkeyManager
     @EnvironmentObject private var recorderUIManager: RecorderUIManager
@@ -209,18 +211,12 @@ struct SettingsView: View {
 
                 LaunchAtLogin.Toggle("Launch at Login")
 
+                #if LOCAL_BUILD
+                LocalBuildUpdateView()
+                #else
                 Toggle("Auto-check Updates", isOn: $autoUpdateCheck)
                     .onChange(of: autoUpdateCheck) { _, newValue in
                         updaterViewModel.toggleAutoUpdates(newValue)
-                    }
-
-                Toggle("Show Announcements", isOn: $enableAnnouncements)
-                    .onChange(of: enableAnnouncements) { _, newValue in
-                        if newValue {
-                            AnnouncementsService.shared.start()
-                        } else {
-                            AnnouncementsService.shared.stop()
-                        }
                     }
 
                 HStack {
@@ -233,6 +229,22 @@ struct SettingsView: View {
                         showResetOnboardingAlert = true
                     }
                 }
+                #endif
+
+                Toggle("Show Announcements", isOn: $enableAnnouncements)
+                    .onChange(of: enableAnnouncements) { _, newValue in
+                        if newValue {
+                            AnnouncementsService.shared.start()
+                        } else {
+                            AnnouncementsService.shared.stop()
+                        }
+                    }
+
+                #if LOCAL_BUILD
+                Button("Reset Onboarding") {
+                    showResetOnboardingAlert = true
+                }
+                #endif
             }
 
             // MARK: - Privacy
