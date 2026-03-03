@@ -11,6 +11,7 @@ final class LocalUpdateService: ObservableObject {
 
     // MARK: - Published State
     @Published var isChecking = false
+    @Published var isUpToDate = false
     @Published var updateAvailable = false
     @Published var latestCommitSHA: String?
     @Published var latestCommitMessage: String?
@@ -18,6 +19,7 @@ final class LocalUpdateService: ObservableObject {
     @Published var newCommitCount: Int = 0
     @Published var lastCheckDate: Date?
     @Published var checkError: String?
+    @Published var upstreamRemoteName: String = "origin"
 
     // MARK: - Configuration
     private let defaults = UserDefaults.standard
@@ -27,6 +29,9 @@ final class LocalUpdateService: ObservableObject {
 
     /// ETag from last GitHub API response for caching.
     private var cachedETag: String?
+
+    /// Timer for periodic auto-check.
+    private var autoCheckTimer: Timer?
 
     var builtCommitSHA: String? {
         get { defaults.string(forKey: "LocalBuild_BuiltCommitSHA") }
@@ -86,7 +91,18 @@ final class LocalUpdateService: ObservableObject {
         return block(url.path)
     }
 
-    private init() {}
+    private init() {
+        startAutoCheckTimer()
+    }
+
+    private func startAutoCheckTimer() {
+        autoCheckTimer = Timer.scheduledTimer(withTimeInterval: 4 * 60 * 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.checkForUpdates()
+            }
+        }
+    }
 
     // MARK: - Check for Updates
 
@@ -94,6 +110,7 @@ final class LocalUpdateService: ObservableObject {
         guard !isChecking else { return }
         isChecking = true
         checkError = nil
+        isUpToDate = false
         updateAvailable = false
         newCommitCount = 0
         defer { isChecking = false }
@@ -160,6 +177,8 @@ final class LocalUpdateService: ObservableObject {
             if latest.sha != builtSHA {
                 updateAvailable = true
                 await fetchCommitCount(since: builtSHA)
+            } else {
+                isUpToDate = true
             }
         } catch is URLError {
             checkError = "Network error. Check your internet connection."
@@ -209,17 +228,34 @@ final class LocalUpdateService: ObservableObject {
         guard FileManager.default.fileExists(atPath: path + "/Makefile") else {
             return "No Makefile found."
         }
-        // Check remote URL
-        let remoteResult = runGitCommand(["remote", "get-url", "origin"], in: path, timeout: 5)
-        if remoteResult.success {
-            let remote = remoteResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !remote.contains("Beingpax/VoiceInk") && !remote.contains("beingpax/VoiceInk") {
-                return "Remote origin does not point to Beingpax/VoiceInk (found: \(remote))."
-            }
+        // Auto-detect which remote points to Beingpax/VoiceInk
+        if let detected = detectUpstreamRemote(in: path) {
+            upstreamRemoteName = detected
         } else {
-            return "Cannot read git remote."
+            return "No remote pointing to Beingpax/VoiceInk found. Add one with:\n  git remote add upstream https://github.com/Beingpax/VoiceInk.git"
         }
         return nil // Valid
+    }
+
+    /// Scan all remotes to find the one pointing to Beingpax/VoiceInk.
+    /// Returns the remote name (e.g. "origin" or "upstream"), or nil if not found.
+    private func detectUpstreamRemote(in directory: String) -> String? {
+        let result = runGitCommand(["remote", "-v"], in: directory, timeout: 5)
+        guard result.success else { return nil }
+
+        for line in result.output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.contains("(fetch)") else { continue }
+            let lowered = trimmed.lowercased()
+            if lowered.contains("beingpax/voiceink") {
+                // First token is the remote name
+                let name = trimmed.components(separatedBy: .whitespaces).first
+                if let name, !name.isEmpty {
+                    return name
+                }
+            }
+        }
+        return nil
     }
 
     private func runGitCommand(_ arguments: [String], in directory: String, timeout: TimeInterval) -> (success: Bool, output: String) {

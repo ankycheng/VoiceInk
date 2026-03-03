@@ -14,6 +14,7 @@ final class LocalBuildService: ObservableObject {
         case idle
         case preflight
         case pulling
+        case rebasing
         case applyingPatches
         case building
         case completed
@@ -31,6 +32,8 @@ final class LocalBuildService: ObservableObject {
 
     private var buildProcess: Process?
     private let processPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+    private var workingBranch: String = "main"
+    private var isForkWorkflow: Bool { workingBranch != "main" }
 
     private init() {}
 
@@ -38,10 +41,12 @@ final class LocalBuildService: ObservableObject {
 
     /// Run preflight checks. Returns nil if OK, or an error string.
     func runPreflight(sourceDir: String) -> String? {
-        // Validate source directory
+        // Validate source directory (also auto-detects upstream remote)
         if let validationError = LocalUpdateService.shared.validateSourceDirectory(sourceDir) {
             return validationError
         }
+
+        let upstreamRemote = LocalUpdateService.shared.upstreamRemoteName
 
         // Check required tools
         for tool in ["git", "make", "xcodebuild"] {
@@ -56,7 +61,7 @@ final class LocalBuildService: ObservableObject {
             }
         }
 
-        // Check branch is main
+        // Detect current branch
         let branchResult = runProcess(
             executable: "/usr/bin/git",
             arguments: ["rev-parse", "--abbrev-ref", "HEAD"],
@@ -64,7 +69,10 @@ final class LocalBuildService: ObservableObject {
             timeout: 5
         )
         let branch = branchResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        if branch != "main" {
+        workingBranch = branch
+
+        // Direct clone mode: must be on main
+        if upstreamRemote == "origin" && branch != "main" {
             return "Source is on branch '\(branch)', expected 'main'. Please switch to main first."
         }
 
@@ -76,17 +84,19 @@ final class LocalBuildService: ObservableObject {
             return "A rebase or merge is in progress. Please resolve it before rebuilding."
         }
 
-        // Check for local commits ahead of origin/main
-        let _ = runProcess(executable: "/usr/bin/git", arguments: ["fetch", "origin", "main"], directory: sourceDir, timeout: 30)
-        let aheadResult = runProcess(
-            executable: "/usr/bin/git",
-            arguments: ["rev-list", "--count", "origin/main..HEAD"],
-            directory: sourceDir,
-            timeout: 5
-        )
-        let aheadCount = Int(aheadResult.output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
-        if aheadCount > 0 {
-            return "You have \(aheadCount) local commit(s) ahead of origin/main. These would be lost during rebuild."
+        // Direct clone mode: check for local commits ahead of remote/main
+        if upstreamRemote == "origin" {
+            let _ = runProcess(executable: "/usr/bin/git", arguments: ["fetch", upstreamRemote, "main"], directory: sourceDir, timeout: 30)
+            let aheadResult = runProcess(
+                executable: "/usr/bin/git",
+                arguments: ["rev-list", "--count", "\(upstreamRemote)/main..HEAD"],
+                directory: sourceDir,
+                timeout: 5
+            )
+            let aheadCount = Int(aheadResult.output.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+            if aheadCount > 0 {
+                return "You have \(aheadCount) local commit(s) ahead of \(upstreamRemote)/main. These would be lost during rebuild."
+            }
         }
 
         // Check for dirty tree
@@ -98,7 +108,6 @@ final class LocalBuildService: ObservableObject {
         )
         let status = statusResult.output.trimmingCharacters(in: .whitespacesAndNewlines)
         if !status.isEmpty {
-            // Return as a warning, not a hard error - caller shows confirmation dialog
             preflightWarning = "There are uncommitted changes in the source directory. They will be discarded during rebuild."
             return nil
         }
@@ -175,6 +184,17 @@ final class LocalBuildService: ObservableObject {
     // MARK: - Private
 
     private func executeRebuild(sourceDir: String, skipPatches: Bool) async -> BuildState {
+        if isForkWorkflow {
+            return await executeForkRebuild(sourceDir: sourceDir, skipPatches: skipPatches)
+        } else {
+            return await executeDirectRebuild(sourceDir: sourceDir, skipPatches: skipPatches)
+        }
+    }
+
+    /// Direct clone path: origin points to Beingpax/VoiceInk, working on main.
+    private func executeDirectRebuild(sourceDir: String, skipPatches: Bool) async -> BuildState {
+        let upstreamRemote = await MainActor.run { LocalUpdateService.shared.upstreamRemoteName }
+
         // Step 1: Clean local changes
         await MainActor.run { buildState = .pulling }
         await appendOutput("=== Cleaning local changes ===\n")
@@ -193,7 +213,7 @@ final class LocalBuildService: ObservableObject {
         await appendOutput("\n=== Pulling latest changes ===\n")
         let pullResult = runProcess(
             executable: "/usr/bin/git",
-            arguments: ["pull", "--rebase", "origin", "main"],
+            arguments: ["pull", "--rebase", upstreamRemote, "main"],
             directory: sourceDir,
             timeout: 60
         )
@@ -202,7 +222,92 @@ final class LocalBuildService: ObservableObject {
             return .failed("git pull failed. You may need to resolve conflicts manually in:\n\(sourceDir)\n\n\(pullResult.output)")
         }
 
-        // Step 3: Apply patches
+        // Step 3: Apply patches + Step 4: Build
+        if let patchError = await applyPatches(sourceDir: sourceDir, skipPatches: skipPatches) {
+            return patchError
+        }
+        return await buildApp(sourceDir: sourceDir)
+    }
+
+    /// Fork path: upstream remote is separate, working branch (e.g. "local") rebases onto main.
+    private func executeForkRebuild(sourceDir: String, skipPatches: Bool) async -> BuildState {
+        let upstreamRemote = await MainActor.run { LocalUpdateService.shared.upstreamRemoteName }
+        let branch = workingBranch
+
+        // Step 1: Switch to main and pull upstream
+        await MainActor.run { buildState = .pulling }
+        await appendOutput("=== Fork workflow: updating main from \(upstreamRemote) ===\n")
+
+        let checkoutMainResult = runProcess(
+            executable: "/usr/bin/git",
+            arguments: ["checkout", "main"],
+            directory: sourceDir,
+            timeout: 15
+        )
+        await appendOutput(checkoutMainResult.output)
+        if !checkoutMainResult.success {
+            // Try to switch back
+            let _ = runProcess(executable: "/usr/bin/git", arguments: ["checkout", branch], directory: sourceDir, timeout: 10)
+            return .failed("Failed to checkout main:\n\(checkoutMainResult.output)")
+        }
+
+        let pullResult = runProcess(
+            executable: "/usr/bin/git",
+            arguments: ["pull", "--rebase", upstreamRemote, "main"],
+            directory: sourceDir,
+            timeout: 60
+        )
+        await appendOutput(pullResult.output)
+        if !pullResult.success {
+            // Switch back to working branch
+            let _ = runProcess(executable: "/usr/bin/git", arguments: ["checkout", branch], directory: sourceDir, timeout: 10)
+            return .failed("Failed to pull upstream main. Switched back to '\(branch)'.\n\n\(pullResult.output)")
+        }
+
+        // Step 2: Switch back to working branch and rebase
+        await MainActor.run { buildState = .rebasing }
+        await appendOutput("\n=== Rebasing '\(branch)' onto main ===\n")
+
+        let checkoutBranchResult = runProcess(
+            executable: "/usr/bin/git",
+            arguments: ["checkout", branch],
+            directory: sourceDir,
+            timeout: 15
+        )
+        await appendOutput(checkoutBranchResult.output)
+        if !checkoutBranchResult.success {
+            return .failed("Failed to checkout '\(branch)':\n\(checkoutBranchResult.output)")
+        }
+
+        let rebaseResult = runProcess(
+            executable: "/usr/bin/git",
+            arguments: ["rebase", "main"],
+            directory: sourceDir,
+            timeout: 120
+        )
+        await appendOutput(rebaseResult.output)
+        if !rebaseResult.success {
+            await appendOutput("\n=== Rebase failed, aborting to restore clean state ===\n")
+            let abortResult = runProcess(
+                executable: "/usr/bin/git",
+                arguments: ["rebase", "--abort"],
+                directory: sourceDir,
+                timeout: 15
+            )
+            await appendOutput(abortResult.output)
+            return .failed("Rebase of '\(branch)' onto main failed. Conflicts need manual resolution.\n\n\(rebaseResult.output)")
+        }
+
+        // Step 3: Apply patches + Step 4: Build
+        if let patchError = await applyPatches(sourceDir: sourceDir, skipPatches: skipPatches) {
+            return patchError
+        }
+        return await buildApp(sourceDir: sourceDir)
+    }
+
+    // MARK: - Shared Build Helpers
+
+    private func applyPatches(sourceDir: String, skipPatches: Bool) async -> BuildState? {
         if !skipPatches {
             await MainActor.run { buildState = .applyingPatches }
             await appendOutput("\n=== Applying patches ===\n")
@@ -226,8 +331,10 @@ final class LocalBuildService: ObservableObject {
         } else {
             await appendOutput("\n=== Skipping patches (user choice) ===\n")
         }
+        return nil // no error
+    }
 
-        // Step 4: make local
+    private func buildApp(sourceDir: String) async -> BuildState {
         await MainActor.run { buildState = .building }
         await appendOutput("\n=== Building VoiceInk ===\n")
         let buildResult = runProcess(
@@ -241,7 +348,6 @@ final class LocalBuildService: ObservableObject {
             return .failed("Build failed:\n\(String(buildResult.output.suffix(500)))")
         }
 
-        // Verify the built app exists
         let appPath = "/Applications/VoiceInk.app"
         if !FileManager.default.fileExists(atPath: appPath) {
             return .failed("Build completed but VoiceInk.app not found at /Applications/VoiceInk.app")

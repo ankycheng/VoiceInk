@@ -33,6 +33,13 @@ struct LocalBuildUpdateView: View {
         // Update Status
         if updateService.updateAvailable {
             updateStatusRow
+        } else if updateService.isUpToDate {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("You're up to date")
+                    .font(.system(size: 12, weight: .medium))
+            }
         }
 
         if let error = updateService.checkError {
@@ -131,20 +138,7 @@ struct LocalBuildUpdateView: View {
             .disabled(updateService.isChecking || buildService.isBuilding)
 
             if updateService.sourceDirectoryPath != nil {
-                Button {
-                    startRebuildWithPreflight()
-                } label: {
-                    if buildService.isBuilding {
-                        HStack(spacing: 4) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text(buildStateLabel)
-                        }
-                    } else {
-                        Text("Rebuild from Latest")
-                    }
-                }
-                .disabled(buildService.isBuilding)
+                rebuildButton
             }
 
             if buildService.isBuilding {
@@ -160,7 +154,7 @@ struct LocalBuildUpdateView: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This will pull latest code from GitHub, apply Traditional Chinese patches, and rebuild the app.")
+            Text("This will pull latest upstream changes, rebase your customizations, and rebuild the app.")
         }
         .alert("Uncommitted Changes", isPresented: $showDirtyTreeConfirmation) {
             Button("Discard and Rebuild", role: .destructive) {
@@ -239,6 +233,30 @@ struct LocalBuildUpdateView: View {
         }
     }
 
+    @ViewBuilder
+    private var rebuildButton: some View {
+        let button = Button {
+            startRebuildWithPreflight()
+        } label: {
+            if buildService.isBuilding {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(buildStateLabel)
+                }
+            } else {
+                Text("Rebuild from Latest")
+            }
+        }
+        .disabled(buildService.isBuilding)
+
+        if updateService.updateAvailable {
+            button.buttonStyle(.borderedProminent)
+        } else {
+            button
+        }
+    }
+
     // MARK: - Helpers
 
     private func startRebuildWithPreflight() {
@@ -260,6 +278,7 @@ struct LocalBuildUpdateView: View {
         switch buildService.buildState {
         case .preflight: return "Checking..."
         case .pulling: return "Pulling..."
+        case .rebasing: return "Rebasing..."
         case .applyingPatches: return "Patching..."
         case .building: return "Building..."
         default: return "Working..."
