@@ -298,10 +298,8 @@ final class LocalBuildService: ObservableObject {
             return .failed("Rebase of '\(branch)' onto main failed. Conflicts need manual resolution.\n\n\(rebaseResult.output)")
         }
 
-        // Step 3: Apply patches + Step 4: Build
-        if let patchError = await applyPatches(sourceDir: sourceDir, skipPatches: skipPatches) {
-            return patchError
-        }
+        // Step 3: Build (skip patches — customizations are already in commits)
+        await appendOutput("\n=== Skipping patches (fork workflow: customizations are in commits) ===\n")
         return await buildApp(sourceDir: sourceDir)
     }
 

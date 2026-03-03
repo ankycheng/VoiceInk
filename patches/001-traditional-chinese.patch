@@ -1,7 +1,14 @@
 diff --git a/Makefile b/Makefile
-index b4dd0eb..8dc4e22 100644
+index b4dd0eb..a40fd32 100644
 --- a/Makefile
 +++ b/Makefile
+@@ -1,5 +1,5 @@
+ # Define a directory for dependencies in the user's home folder
+-DEPS_DIR := $(HOME)/VoiceInk-Dependencies
++DEPS_DIR := $(CURDIR)/deps
+ WHISPER_CPP_DIR := $(DEPS_DIR)/whisper.cpp
+ FRAMEWORK_PATH := $(WHISPER_CPP_DIR)/build-apple/whisper.xcframework
+ 
 @@ -48,7 +48,7 @@ local: check setup
  	@echo "Building VoiceInk for local use (no Apple Developer certificate required)..."
  	xcodebuild -project VoiceInk.xcodeproj -scheme VoiceInk -configuration Debug \
@@ -47,10 +54,10 @@ index b4dd0eb..8dc4e22 100644
  		echo "Looking for VoiceInk.app in DerivedData..."; \
  		APP_PATH=$$(find "$$HOME/Library/Developer/Xcode/DerivedData" -name "VoiceInk.app" -type d | head -1) && \
 diff --git a/VoiceInk/AppDefaults.swift b/VoiceInk/AppDefaults.swift
-index 6bf99e0..8c00ba9 100644
+index 2e91b27..25cf8b2 100644
 --- a/VoiceInk/AppDefaults.swift
 +++ b/VoiceInk/AppDefaults.swift
-@@ -22,7 +22,7 @@ enum AppDefaults {
+@@ -23,7 +23,7 @@ enum AppDefaults {
              "IsTextFormattingEnabled": true,
              "IsVADEnabled": true,
              "RemoveFillerWords": true,
@@ -59,7 +66,7 @@ index 6bf99e0..8c00ba9 100644
              "AppendTrailingSpace": true,
              "RecorderType": "mini",
  
-@@ -46,6 +46,9 @@ enum AppDefaults {
+@@ -45,6 +45,9 @@ enum AppDefaults {
  
              // Model
              "PrewarmModelOnWake": true,
@@ -70,7 +77,7 @@ index 6bf99e0..8c00ba9 100644
      }
  }
 diff --git a/VoiceInk/Models/PredefinedModels.swift b/VoiceInk/Models/PredefinedModels.swift
-index b8a333f..46b74e8 100644
+index 21ed1f0..8976603 100644
 --- a/VoiceInk/Models/PredefinedModels.swift
 +++ b/VoiceInk/Models/PredefinedModels.swift
 @@ -443,6 +443,6 @@ import Foundation
@@ -95,24 +102,24 @@ index 0476517..268d6b1 100644
          self.isDefault = isDefault
          self.hotkeyShortcut = hotkeyShortcut
 diff --git a/VoiceInk/Views/AI Models/LanguageSelectionView.swift b/VoiceInk/Views/AI Models/LanguageSelectionView.swift
-index 98112d5..7b6623a 100644
+index d738989..d7fd226 100644
 --- a/VoiceInk/Views/AI Models/LanguageSelectionView.swift	
 +++ b/VoiceInk/Views/AI Models/LanguageSelectionView.swift	
 @@ -8,7 +8,7 @@ enum LanguageDisplayMode {
  
  struct LanguageSelectionView: View {
-     @ObservedObject var whisperState: WhisperState
+     @ObservedObject var transcriptionModelManager: TranscriptionModelManager
 -    @AppStorage("SelectedLanguage") private var selectedLanguage: String = "en"
 +    @AppStorage("SelectedLanguage") private var selectedLanguage: String = "zh"
      // Add display mode parameter with full as the default
      var displayMode: LanguageDisplayMode = .full
      @ObservedObject var whisperPrompt: WhisperPrompt
 diff --git a/VoiceInk/Views/MenuBarView.swift b/VoiceInk/Views/MenuBarView.swift
-index b755591..80b9f6a 100644
+index 73de87b..08f3c95 100644
 --- a/VoiceInk/Views/MenuBarView.swift
 +++ b/VoiceInk/Views/MenuBarView.swift
-@@ -5,7 +5,9 @@ struct MenuBarView: View {
-     @EnvironmentObject var whisperState: WhisperState
+@@ -8,7 +8,9 @@ struct MenuBarView: View {
+     @EnvironmentObject var whisperModelManager: WhisperModelManager
      @EnvironmentObject var hotkeyManager: HotkeyManager
      @EnvironmentObject var menuBarManager: MenuBarManager
 +    #if !LOCAL_BUILD
@@ -121,7 +128,7 @@ index b755591..80b9f6a 100644
      @EnvironmentObject var enhancementService: AIEnhancementService
      @EnvironmentObject var aiService: AIService
      @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
-@@ -220,10 +222,21 @@ struct MenuBarView: View {
+@@ -228,10 +230,21 @@ struct MenuBarView: View {
              
              Divider()
              
@@ -157,20 +164,20 @@ index c70f770..3e6b04f 100644
      @AppStorage("IsVADEnabled") private var isVADEnabled = true
      @AppStorage("AppendTrailingSpace") private var appendTrailingSpace = true
 diff --git a/VoiceInk/Views/Settings/SettingsView.swift b/VoiceInk/Views/Settings/SettingsView.swift
-index 746063b..89c1b8c 100644
+index ba8435a..de768a1 100644
 --- a/VoiceInk/Views/Settings/SettingsView.swift
 +++ b/VoiceInk/Views/Settings/SettingsView.swift
-@@ -5,7 +5,9 @@ import LaunchAtLogin
- import AVFoundation
+@@ -6,7 +6,9 @@ import AVFoundation
  
  struct SettingsView: View {
+     @Environment(\.modelContext) private var modelContext
 +    #if !LOCAL_BUILD
      @EnvironmentObject private var updaterViewModel: UpdaterViewModel
 +    #endif
      @EnvironmentObject private var menuBarManager: MenuBarManager
      @EnvironmentObject private var hotkeyManager: HotkeyManager
-     @EnvironmentObject private var whisperState: WhisperState
-@@ -207,20 +209,14 @@ struct SettingsView: View {
+     @EnvironmentObject private var recorderUIManager: RecorderUIManager
+@@ -209,20 +211,14 @@ struct SettingsView: View {
  
                  LaunchAtLogin.Toggle("Launch at Login")
  
@@ -194,7 +201,7 @@ index 746063b..89c1b8c 100644
                  HStack {
                      Button("Check for Updates") {
                          updaterViewModel.checkForUpdates()
-@@ -231,6 +227,22 @@ struct SettingsView: View {
+@@ -233,6 +229,22 @@ struct SettingsView: View {
                          showResetOnboardingAlert = true
                      }
                  }
@@ -218,7 +225,7 @@ index 746063b..89c1b8c 100644
  
              // MARK: - Privacy
 diff --git a/VoiceInk/VoiceInk.swift b/VoiceInk/VoiceInk.swift
-index 584b2bd..2ae7461 100644
+index a310706..21672e6 100644
 --- a/VoiceInk/VoiceInk.swift
 +++ b/VoiceInk/VoiceInk.swift
 @@ -1,6 +1,8 @@
@@ -230,9 +237,9 @@ index 584b2bd..2ae7461 100644
  import AppKit
  import OSLog
  import AppIntents
-@@ -14,7 +16,9 @@ struct VoiceInkApp: App {
-     
-     @StateObject private var whisperState: WhisperState
+@@ -18,7 +20,9 @@ struct VoiceInkApp: App {
+     @StateObject private var transcriptionModelManager: TranscriptionModelManager
+     @StateObject private var recorderUIManager: RecorderUIManager
      @StateObject private var hotkeyManager: HotkeyManager
 +    #if !LOCAL_BUILD
      @StateObject private var updaterViewModel: UpdaterViewModel
@@ -240,20 +247,20 @@ index 584b2bd..2ae7461 100644
      @StateObject private var menuBarManager: MenuBarManager
      @StateObject private var aiService = AIService()
      @StateObject private var enhancementService: AIEnhancementService
-@@ -86,8 +90,10 @@ struct VoiceInkApp: App {
+@@ -90,8 +94,10 @@ struct VoiceInkApp: App {
          let aiService = AIService()
          _aiService = StateObject(wrappedValue: aiService)
-         
+ 
 +        #if !LOCAL_BUILD
          let updaterViewModel = UpdaterViewModel()
          _updaterViewModel = StateObject(wrappedValue: updaterViewModel)
 +        #endif
-         
+ 
          let enhancementService = AIEnhancementService(aiService: aiService, modelContext: container.mainContext)
          _enhancementService = StateObject(wrappedValue: enhancementService)
-@@ -201,7 +207,9 @@ struct VoiceInkApp: App {
-                 ContentView()
-                     .environmentObject(whisperState)
+@@ -253,7 +259,9 @@ struct VoiceInkApp: App {
+                     .environmentObject(transcriptionModelManager)
+                     .environmentObject(recorderUIManager)
                      .environmentObject(hotkeyManager)
 +                    #if !LOCAL_BUILD
                      .environmentObject(updaterViewModel)
@@ -261,7 +268,7 @@ index 584b2bd..2ae7461 100644
                      .environmentObject(menuBarManager)
                      .environmentObject(aiService)
                      .environmentObject(enhancementService)
-@@ -223,7 +231,11 @@ struct VoiceInkApp: App {
+@@ -275,7 +283,11 @@ struct VoiceInkApp: App {
                          // Migrate dictionary data from UserDefaults to SwiftData (one-time operation)
                          DictionaryMigrationService.shared.migrateIfNeeded(context: container.mainContext)
  
@@ -273,7 +280,7 @@ index 584b2bd..2ae7461 100644
                          if enableAnnouncements {
                              AnnouncementsService.shared.start()
                          }
-@@ -278,9 +290,11 @@ struct VoiceInkApp: App {
+@@ -328,9 +340,11 @@ struct VoiceInkApp: App {
          .commands {
              CommandGroup(replacing: .newItem) { }
  
@@ -283,10 +290,10 @@ index 584b2bd..2ae7461 100644
              }
 +            #endif
          }
-         
+ 
          MenuBarExtra(isInserted: $showMenuBarIcon) {
-@@ -288,7 +302,9 @@ struct VoiceInkApp: App {
-                 .environmentObject(whisperState)
+@@ -342,7 +356,9 @@ struct VoiceInkApp: App {
+                 .environmentObject(recorderUIManager)
                  .environmentObject(hotkeyManager)
                  .environmentObject(menuBarManager)
 +                #if !LOCAL_BUILD
@@ -295,57 +302,15 @@ index 584b2bd..2ae7461 100644
                  .environmentObject(aiService)
                  .environmentObject(enhancementService)
          } label: {
-@@ -313,33 +329,34 @@ struct VoiceInkApp: App {
+@@ -367,6 +383,7 @@ struct VoiceInkApp: App {
      }
  }
  
 +#if !LOCAL_BUILD
  class UpdaterViewModel: ObservableObject {
      @AppStorage("autoUpdateCheck") private var autoUpdateCheck = true
--    
-+
-     private let updaterController: SPUStandardUpdaterController
--    
-+
-     @Published var canCheckForUpdates = false
--    
-+
-     init() {
-         updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
--        
-+
-         // Enable automatic update checking
-         updaterController.updater.automaticallyChecksForUpdates = autoUpdateCheck
-         updaterController.updater.updateCheckInterval = 24 * 60 * 60
--        
-+
-         updaterController.updater.publisher(for: \.canCheckForUpdates)
-             .assign(to: &$canCheckForUpdates)
-     }
--    
-+
-     func toggleAutoUpdates(_ value: Bool) {
-         updaterController.updater.automaticallyChecksForUpdates = value
-     }
--    
-+
-     func checkForUpdates() {
-         // This is for manual checks - will show UI
-         updaterController.checkForUpdates(nil)
-     }
--    
-+
-     func silentlyCheckForUpdates() {
-         // This checks for updates in the background without showing UI unless an update is found
-         updaterController.updater.checkForUpdatesInBackground()
-@@ -348,12 +365,13 @@ class UpdaterViewModel: ObservableObject {
  
- struct CheckForUpdatesView: View {
-     @ObservedObject var updaterViewModel: UpdaterViewModel
--    
-+
-     var body: some View {
-         Button("Check for Updates…", action: updaterViewModel.checkForUpdates)
+@@ -408,6 +425,7 @@ struct CheckForUpdatesView: View {
              .disabled(!updaterViewModel.canCheckForUpdates)
      }
  }
@@ -354,7 +319,7 @@ index 584b2bd..2ae7461 100644
  struct WindowAccessor: NSViewRepresentable {
      let callback: (NSWindow) -> Void
 diff --git a/VoiceInk/Whisper/WhisperPrompt.swift b/VoiceInk/Whisper/WhisperPrompt.swift
-index 1c1d24b..35b89a0 100644
+index 1c1d24b..c37b15b 100644
 --- a/VoiceInk/Whisper/WhisperPrompt.swift
 +++ b/VoiceInk/Whisper/WhisperPrompt.swift
 @@ -20,7 +20,7 @@ class WhisperPrompt: ObservableObject {
@@ -362,7 +327,7 @@ index 1c1d24b..35b89a0 100644
          "ja": "こんにちは、お元気ですか？お会いできて嬉しいです。",
          "ko": "안녕하세요, 잘 지내시나요? 만나서 반갑습니다.",
 -        "zh": "你好，最近好吗？见到你很高兴。",
-+        "zh": "以下是普通話的句子。你好，最近好嗎？見到你很高興。",
++        "zh": "",
          "th": "สวัสดีครับ/ค่ะ, สบายดีไหม? ยินดีที่ได้พบคุณ",
          "vi": "Xin chào, bạn khỏe không? Rất vui được gặp bạn.",
          "yue": "你好，最近點呀？見到你好開心。",
