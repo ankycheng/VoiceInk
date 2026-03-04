@@ -169,25 +169,22 @@ final class LocalBuildService: ObservableObject {
 
     func openNewVersion() {
         let appPath = "/Applications/VoiceInk.app"
-        let appURL = URL(fileURLWithPath: appPath)
 
         guard FileManager.default.fileExists(atPath: appPath) else {
             buildState = .failed("Built app not found at /Applications/VoiceInk.app")
             return
         }
 
-        NSWorkspace.shared.openApplication(at: appURL, configuration: .init()) { app, error in
-            if app != nil {
-                // New version launched successfully, terminate old one
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    NSApplication.shared.terminate(nil)
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.buildState = .failed("Failed to launch new version: \(error?.localizedDescription ?? "unknown error")")
-                }
-            }
-        }
+        // Schedule relaunch: a background shell waits for this process to exit, then opens the new app.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1 && open \"\(appPath)\""]
+        process.standardOutput = nil
+        process.standardError = nil
+        try? process.run()
+
+        // Terminate the current instance so macOS launches a fresh one.
+        NSApplication.shared.terminate(nil)
     }
 
     // MARK: - Private
