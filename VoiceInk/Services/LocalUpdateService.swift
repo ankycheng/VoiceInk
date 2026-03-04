@@ -143,8 +143,14 @@ final class LocalUpdateService: ObservableObject {
             }
 
             if httpResponse.statusCode == 304 {
-                // Not modified, use cached state
+                // Not modified — re-derive state from cached data
                 lastCheckDate = Date()
+                if let cachedSHA = latestCommitSHA, cachedSHA != builtSHA {
+                    updateAvailable = true
+                    await fetchCommitCount(since: builtSHA)
+                } else {
+                    isUpToDate = true
+                }
                 return
             }
 

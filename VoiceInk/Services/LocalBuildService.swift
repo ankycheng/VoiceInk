@@ -359,7 +359,7 @@ final class LocalBuildService: ObservableObject {
         let output: String
     }
 
-    private func runProcess(executable: String, arguments: [String], directory: String, timeout: TimeInterval) -> ProcessResult {
+    private nonisolated func runProcess(executable: String, arguments: [String], directory: String, timeout: TimeInterval) -> ProcessResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -371,11 +371,27 @@ final class LocalBuildService: ObservableObject {
             "LANG": "en_US.UTF-8"
         ]
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
-        self.buildProcess = process
+        // Read output concurrently to prevent pipe buffer deadlock.
+        // If a child process inherits the pipe fd, readDataToEndOfFile hangs.
+        var stdoutData = Data()
+        var stderrData = Data()
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global().async {
+            stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global().async {
+            stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
 
         do {
             try process.run()
@@ -389,8 +405,18 @@ final class LocalBuildService: ObservableObject {
                 return ProcessResult(success: false, output: "Command timed out after \(Int(timeout))s.")
             }
 
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
+            // Wait for output readers to finish (extra 5s grace period)
+            let readResult = group.wait(timeout: .now() + 5)
+            if readResult == .timedOut {
+                // Force close pipes to unblock readers
+                try? stdoutPipe.fileHandleForReading.close()
+                try? stderrPipe.fileHandleForReading.close()
+            }
+
+            let output = [
+                String(data: stdoutData, encoding: .utf8) ?? "",
+                String(data: stderrData, encoding: .utf8) ?? ""
+            ].joined()
             return ProcessResult(success: process.terminationStatus == 0, output: output)
         } catch {
             return ProcessResult(success: false, output: "Failed to start: \(error.localizedDescription)")
