@@ -137,11 +137,20 @@ final class LocalBuildService: ObservableObject {
         isBuilding = false
 
         if case .completed = result {
-            // Update the built commit SHA
+            // Update the built commit SHA.
+            // Fork workflow: store main branch SHA (= upstream commit) so update check
+            // correctly compares against the upstream latest, not local branch HEAD.
             LocalUpdateService.shared.withSourceDirectoryAccess { path in
-                if let newSHA = LocalUpdateService.shared.readCurrentCommitSHA(from: path) {
-                    LocalUpdateService.shared.builtCommitSHA = newSHA
+                let sha: String?
+                if isForkWorkflow {
+                    sha = LocalUpdateService.shared.readBranchSHA("main", from: path)
+                } else {
+                    sha = LocalUpdateService.shared.readCurrentCommitSHA(from: path)
+                }
+                if let sha {
+                    LocalUpdateService.shared.builtCommitSHA = sha
                     LocalUpdateService.shared.updateAvailable = false
+                    LocalUpdateService.shared.isUpToDate = true
                     LocalUpdateService.shared.newCommitCount = 0
                 }
             }

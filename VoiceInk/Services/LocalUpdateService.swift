@@ -221,6 +221,12 @@ final class LocalUpdateService: ObservableObject {
         return result.success ? result.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil
     }
 
+    /// Read the SHA of a specific branch (e.g. "main") in the source directory.
+    func readBranchSHA(_ branch: String, from directoryPath: String) -> String? {
+        let result = runGitCommand(["rev-parse", branch], in: directoryPath, timeout: 10)
+        return result.success ? result.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    }
+
     func validateSourceDirectory(_ path: String) -> String? {
         // Check directory exists
         guard FileManager.default.fileExists(atPath: path) else {
